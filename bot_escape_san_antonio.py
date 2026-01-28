@@ -283,7 +283,6 @@ ROOMS: Dict[int, Dict[str, Any]] = {
             "SALA 9 · EL FINAL",
             "",
             "Escribe UNA virtud que defina su vida.",
-            "Respuestas válidas: humildad / fe / pobreza / perseverancia"
         ),
         "hints": [
             "Elige una de estas cuatro: humildad, fe, pobreza, perseverancia.",
@@ -298,9 +297,6 @@ ROOMS: Dict[int, Dict[str, Any]] = {
             "SALA 10 · EL LEGADO",
             "",
             "Escribe TRES objetos de tu inventario separados por comas.",
-            "Ejemplo: renuncia, oracion, sabiduria",
-            "",
-            "Nota: si tienes un comodín, puedes escribir solo DOS objetos."
         ),
         "hints": [
             "Una combinación válida: renuncia, oracion, sabiduria.",
@@ -730,7 +726,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         final_msg = lines(
             "",
             "PUNTUACION FINAL",
-            f"Puntos: {stats['score']}/1000",
+            f"Puntos: {stats['score']}",
             f"Tiempo total: {stats['time_sec']} s",
             f"Penalizacion acumulada: {stats['penalty_sec']} s",
             f"Pistas usadas: {stats['hints_used']}",
@@ -786,3 +782,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
