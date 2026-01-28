@@ -347,7 +347,7 @@ OPTIONALS: Dict[str, Dict[str, Any]] = {
         "text": lines(
             "SALA OPCIONAL C · CARIDAD ACTIVA",
             "",
-            "Anagrama: ROAMICNSOP",
+            "Anagrama: OAMICNSOP",
             "Escribe la palabra."
         ),
         "answers": ["compasion"],
@@ -793,6 +793,7 @@ app.run_webhook(
 
 if __name__ == "__main__":
     main()
+
 
 
 
