@@ -5,6 +5,8 @@ import os
 import time
 import logging
 import unicodedata
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Dict, Any, List, Optional, Tuple
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -33,6 +35,34 @@ PERSIST_FILE = "escape_san_antonio.pickle"
 
 MODE_INDIVIDUAL = "individual"
 MODE_GROUP = "group"
+
+# =========================
+# MINI WEB SERVER (Render needs an open port)
+# =========================
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path in ("/", "/health", "/healthz"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"OK")
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        # Silenciar logs HTTP para no llenar Render logs
+        return
+
+def start_health_server():
+    """
+    Render (Web Service) exige que el proceso abra un puerto.
+    Render define el puerto en la variable de entorno PORT.
+    """
+    port = int(os.getenv("PORT", "10000"))  # fallback si lo pruebas local
+    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    logger.info(f"Health server listening on port {port}")
+    server.serve_forever()
 
 # =========================
 # HELPERS
@@ -69,18 +99,8 @@ def count_total_hints_used(state: dict) -> int:
     return sum(safe_int(v, 0) for v in hu.values())
 
 def compute_score(state: dict) -> Dict[str, int]:
-    """
-    Puntuación: cuanto MÁS ALTA, mejor.
-    Base 1000
-    - tiempo total en segundos
-    - penalización directa (ya incluida en elapsed, pero la mostramos aparte)
-    - pistas usadas: -40 cada una
-    - intentos extra: -5 por intento (contando todos)
-    + opcionales completadas: +50 cada una
-    + finalización: +200 (si completado)
-    """
     base = 1000
-    total_time = elapsed(state)  # incluye penalización
+    total_time = elapsed(state)
     penalty_sec = safe_int(state.get("penalty_sec", 0))
     hints_used = count_total_hints_used(state)
     attempts = count_total_attempts(state)
@@ -263,6 +283,7 @@ ROOMS: Dict[int, Dict[str, Any]] = {
             "SALA 9 · EL FINAL",
             "",
             "Escribe UNA virtud que defina su vida.",
+            "Respuestas válidas: humildad / fe / pobreza / perseverancia"
         ),
         "hints": [
             "Elige una de estas cuatro: humildad, fe, pobreza, perseverancia.",
@@ -364,7 +385,7 @@ def init_state(container: dict) -> None:
             "in_optional": None,
             "free_hints": 0,
             "jokers": 0,
-            "s4_step": 0,  # 0=soberbia,1=riqueza,2=miedo,3=done
+            "s4_step": 0,
         }
 
 def get_container(context: ContextTypes.DEFAULT_TYPE) -> dict:
@@ -414,12 +435,10 @@ def validate_room_10(raw: str, inv: List[str], jokers: int) -> Tuple[bool, bool]
 async def send_room(update: Update, context: ContextTypes.DEFAULT_TYPE, room: int) -> None:
     state = st(context)
     state["room"] = room
-
     if room == 4:
         state["s4_step"] = 0
 
     data = ROOMS[room]
-
     if data.get("image"):
         if os.path.exists(SALA3_IMAGE):
             with open(SALA3_IMAGE, "rb") as f:
@@ -490,15 +509,12 @@ async def cmd_estado(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def cmd_pista(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     state = st(context)
-
     if state.get("mode") is None:
         await update.message.reply_text("Usa /start y elige modo para comenzar.")
         return
-
     if state.get("completed"):
         await update.message.reply_text("Ya completaste el escape. Usa /reiniciar si quieres repetir.")
         return
-
     if state.get("in_optional"):
         await update.message.reply_text("Esta sala opcional no tiene pista automática.")
         return
@@ -613,7 +629,6 @@ async def handle_room4_sequence(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Reiniciamos la Sala 4.\nTentación: SOBERBIA\n¿Qué virtud la vence?")
         return True
 
-    # Contabiliza intento (en sala 4 también)
     inc(state, "attempts", 4)
 
     if user_text_norm != expected[step]:
@@ -630,7 +645,6 @@ async def handle_room4_sequence(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Correcto.\n\nSiguiente tentación: MIEDO\n¿Qué virtud la vence?")
         return True
 
-    # step == 2
     state["s4_step"] = 3
     add_item(state, ROOMS[4]["item"])
     await update.message.reply_text("Correcto.\nHas vencido las 3 tentaciones.")
@@ -646,11 +660,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     state = st(context)
-
     if state.get("mode") is None:
         await update.message.reply_text("Usa /start y elige modo para comenzar.")
         return
-
     if state.get("completed"):
         await update.message.reply_text("Ya completaste el escape. Usa /reiniciar si quieres repetir.")
         return
@@ -658,7 +670,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     raw = update.message.text
     txt = normalize(raw)
 
-    # Opcional
     opt_id = state.get("in_optional")
     if opt_id:
         answers = [normalize(a) for a in OPTIONALS[opt_id]["answers"]]
@@ -688,14 +699,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Pulsa /start para comenzar.")
         return
 
-    # Sala 4 secuencial
     if await handle_room4_sequence(update, context, txt):
         return
 
-    # Intentos por sala normal
     inc(state, "attempts", room)
-
     data = ROOMS[room]
+
     ok = False
     used_joker = False
 
@@ -709,14 +718,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("No es correcto. Inténtalo de nuevo. (Usa /pista si lo necesitas.)")
         return
 
-    # Consumir comodín si se usó en sala 10
     if room == 10 and used_joker:
         state["jokers"] = max(0, safe_int(state.get("jokers", 0)) - 1)
 
     add_item(state, data.get("item"))
     await update.message.reply_text(data["success"])
 
-    # Final
     if room == 10:
         state["completed"] = True
         stats = compute_score(state)
@@ -735,7 +742,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(final_msg)
         return
 
-    # Ofrecer opcional si toca
     if room in OPTIONAL_OFFER_POINTS:
         opt_id_offer, next_room = OPTIONAL_OFFER_POINTS[room]
         await offer_optional(update, opt_id_offer, next_room)
@@ -748,14 +754,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # =========================
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.exception("Error no controlado:", exc_info=context.error)
-    try:
-        if isinstance(update, Update) and update.effective_chat:
-            await update.effective_chat.send_message(
-                "Ha ocurrido un error interno, pero el bot sigue activo.\n"
-                "Escribe /start o repite la última acción."
-            )
-    except Exception:
-        pass
 
 # =========================
 # MAIN
@@ -765,6 +763,11 @@ def main() -> None:
     if not token:
         raise RuntimeError(f"Falta la variable de entorno {TOKEN_ENV} con el token del bot.")
 
+    # 1) Abrir puerto para Render (en hilo aparte)
+    t = threading.Thread(target=start_health_server, daemon=True)
+    t.start()
+
+    # 2) Bot normal (polling)
     persistence = PicklePersistence(filepath=PERSIST_FILE)
     app = Application.builder().token(token).persistence(persistence).build()
 
