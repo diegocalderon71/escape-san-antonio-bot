@@ -777,9 +777,8 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
     app.add_error_handler(error_handler)
-    # 3) Arranque del bot con WEBHOOK (para Render Free)
+        # 3) Arranque del bot con WEBHOOK (Render Free)
     PORT = int(os.environ.get("PORT", 10000))
-
     WEBHOOK_PATH = "telegram"
     RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
@@ -795,5 +794,7 @@ def main() -> None:
         webhook_url=WEBHOOK_URL,
         allowed_updates=Update.ALL_TYPES,
     )
+
     if __name__ == "__main__":
     main()
+
