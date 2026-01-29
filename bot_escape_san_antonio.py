@@ -777,23 +777,23 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
     app.add_error_handler(error_handler)
-
+    # 3) Arranque del bot con WEBHOOK (para Render Free)
     PORT = int(os.environ.get("PORT", 10000))
 
-WEBHOOK_PATH = "/telegram"
-WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL") + WEBHOOK_PATH
+    WEBHOOK_PATH = "telegram"
+    RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
-app.run_webhook(
-    listen="0.0.0.0",
-    port=PORT,
-    url_path=WEBHOOK_PATH,
-    webhook_url=WEBHOOK_URL,
-    allowed_updates=Update.ALL_TYPES,
-)
+    if not RENDER_URL:
+        raise RuntimeError("Falta la variable de entorno RENDER_EXTERNAL_URL")
 
-if __name__ == "__main__":
+    WEBHOOK_URL = RENDER_URL + "/" + WEBHOOK_PATH
+
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=WEBHOOK_PATH,
+        webhook_url=WEBHOOK_URL,
+        allowed_updates=Update.ALL_TYPES,
+    )
+    if __name__ == "__main__":
     main()
-
-
-
-
